@@ -13,15 +13,27 @@
 (function() {
     'use strict';
 
-    function runSetTickList(target) {
-        if (target) {
+    function runSetTickListSelective(target, override = false) {
+        if (!target || !["Yes", "No", "NA"].includes(target)) return;
 
-            var state = null;
-            let rlist = document.querySelectorAll('input.afRadio__input[id^="' + target + '_"]');
-            for (let i=0; i<rlist.length; ++i) {
-                rlist[i].checked = true;
+        const yesList = document.querySelectorAll('input.afRadio__input[id^="Yes_"]');
+        const noList = document.querySelectorAll('input.afRadio__input[id^="No_"]');
+        const naList = document.querySelectorAll('input.afRadio__input[id^="NA_"]');
+
+        const targetMap = {
+            Yes: yesList,
+            No: noList,
+            NA: naList
+        };
+
+        const selectedList = targetMap[target];
+
+        for (let i = 0; i < yesList.length; i++) {
+            const nothingChecked = !yesList[i].checked && !noList[i].checked && !naList[i].checked;
+
+            if (override || nothingChecked) {
+                selectedList[i].checked = true;
             }
-            //alert("end");
         }
     }
 
@@ -30,11 +42,11 @@
         // Check if the key combination is Ctrl+Shift+Q
         if (event.ctrlKey && event.shiftKey && event.code === 'KeyQ') {
             event.preventDefault();
-            runSetTickList("NA");
+            runSetTickListSelective("NA");
         }
         if (event.ctrlKey && event.shiftKey && event.code === 'KeyE') {
             event.preventDefault();
-            runSetTickList("Yes");
+            runSetTickListSelective("Yes");
         }
     });
 
