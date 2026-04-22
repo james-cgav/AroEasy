@@ -186,16 +186,16 @@
     function getEnabledOptionalHeaders(optionalColumns) {
         return [
             ...(optionalColumns.sortIndex ? ['Sort Index'] : []),
-            ...(optionalColumns.isAssembly ? ['Is Assembly'] : []),
-            ...(optionalColumns.assemblyName ? ['Assembly Name'] : [])
+            ...(optionalColumns.assemblyName ? ['Assembly Name'] : []),
+            ...(optionalColumns.isAssembly ? ['Is Assembly'] : [])
         ];
     }
 
     function getOptionalRowValues(row, optionalColumns) {
         return [
             ...(optionalColumns.sortIndex ? [row.sortIndex] : []),
-            ...(optionalColumns.isAssembly ? [row.isAssembly] : []),
-            ...(optionalColumns.assemblyName ? [row.assemblyName] : [])
+            ...(optionalColumns.assemblyName ? [row.assemblyName] : []),
+            ...(optionalColumns.isAssembly ? [row.isAssembly] : [])
         ];
     }
 
@@ -206,10 +206,12 @@
 
     function toCsv(rows, optionalColumns) {
         const headers = [
-            ...getEnabledOptionalHeaders(optionalColumns),
-            'Takeoff Sheet',
+            ...(optionalColumns.sortIndex ? ['Index'] : []),
+            'Takeoff',
+            ...(optionalColumns.assemblyName ? ['Assembly'] : []),
+            ...(optionalColumns.isAssembly ? ['Is Assembly'] : []),
             'Assembly Depth',
-            'Parent Item',
+            'Heritage',
             'Part Number',
             'Description',
             'Qty',
@@ -266,10 +268,12 @@
 
     function buildHtmlTable(rows, optionalColumns) {
         const headerCells = [
-            ...getEnabledOptionalHeaders(optionalColumns),
-            'Takeoff Sheet',
+            ...(optionalColumns.sortIndex ? ['Index'] : []),
+            'Takeoff',
+            ...(optionalColumns.assemblyName ? ['Assembly'] : []),
+            ...(optionalColumns.isAssembly ? ['Is Assembly'] : []),
             'Assembly Depth',
-            'Parent Item',
+            'Heritage',
             'Part Number',
             'Description',
             'Qty',
@@ -294,9 +298,9 @@
             return `
                 <tr style="background:${bg};font-weight:${weight};">
                     ${optionalColumns.sortIndex ? `<td>${escapeHtml(row.sortIndex)}</td>` : ''}
-                    ${optionalColumns.isAssembly ? `<td>${escapeHtml(row.isAssembly)}</td>` : ''}
-                    ${optionalColumns.assemblyName ? `<td>${escapeHtml(row.assemblyName)}</td>` : ''}
                     <td>${escapeHtml(row.takeoffSheet)}</td>
+                    ${optionalColumns.assemblyName ? `<td>${escapeHtml(row.assemblyName)}</td>` : ''}
+                    ${optionalColumns.isAssembly ? `<td>${escapeHtml(row.isAssembly)}</td>` : ''}
                     <td>${escapeHtml(row.assemblyDepth)}</td>
                     <td>${escapeHtml(row.parentItem)}</td>
                     <td>${escapeHtml(row.partNo)}</td>
@@ -506,9 +510,9 @@
                 <tr style="background:${bg};font-weight:${weight};">
                     <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${checkboxHtml}</td>
                     ${optionalColumns.sortIndex ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.sortIndex)}</td>` : ''}
-                    ${optionalColumns.isAssembly ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.isAssembly)}</td>` : ''}
-                    ${optionalColumns.assemblyName ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.assemblyName)}</td>` : ''}
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.takeoffSheet)}</td>
+                    ${optionalColumns.assemblyName ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.assemblyName)}</td>` : ''}
+                    ${optionalColumns.isAssembly ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.isAssembly)}</td>` : ''}
                     <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${escapeHtml(row.assemblyDepth)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.parentItem)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.partNo)}</td>
@@ -629,12 +633,12 @@
                 tableHead.innerHTML = `
                     <tr>
                         <th style="padding:8px;border:1px solid #ddd;text-align:center;">Include</th>
-                        ${optionalColumns.sortIndex ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Sort Index</th>' : ''}
-                        ${optionalColumns.isAssembly ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Is Assembly</th>' : ''}
-                        ${optionalColumns.assemblyName ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Assembly Name</th>' : ''}
-                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Takeoff Sheet</th>
+                        ${optionalColumns.sortIndex ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Index</th>' : ''}
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Takeoff</th>
+                        ${optionalColumns.assemblyName ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Assembly</th>' : ''}
+                        ${optionalColumns.isAssembly ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Is Assembly?</th>' : ''}
                         <th style="padding:8px;border:1px solid #ddd;text-align:center;">Assembly Depth</th>
-                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Parent Item</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Heritage</th>
                         <th style="padding:8px;border:1px solid #ddd;text-align:left;">Part Number</th>
                         <th style="padding:8px;border:1px solid #ddd;text-align:left;">Description</th>
                         <th style="padding:8px;border:1px solid #ddd;text-align:right;">Qty</th>
