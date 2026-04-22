@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aroflo Quote Export Table [Takeoff / Assembly / Qty]
 // @namespace    https://contactgroup.com.au
-// @version      2026-04-22e
+// @version      2026-04-22j
 // @description  Ctrl-Shift-E exports quote line data into a modal table and clipboard-ready format.
 // @author       James Wright
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/index.cfm*
@@ -12,6 +12,12 @@
 
 (function () {
     'use strict';
+
+    const OPTIONAL_COLUMNS_DEFAULT = {
+        sortIndex: true,
+        isAssembly: true,
+        assemblyName: true
+    };
 
     function escapeHtml(str) {
         return String(str ?? '').replace(/[&<>"']/g, function (m) {
@@ -61,11 +67,40 @@
         };
     }
 
+    function buildParentItemPath(item, lineMap, takeoffName) {
+        if (!item.parentId) {
+            return `[${takeoffName}]`;
+        }
+
+        const parents = [];
+        let current = lineMap.get(item.parentId);
+
+        while (current) {
+            parents.unshift(current.description || '');
+            if (!current.parentId) break;
+            current = lineMap.get(current.parentId);
+        }
+
+        const cleanParents = parents.filter(Boolean);
+        if (!cleanParents.length) {
+            return `[${takeoffName}]`;
+        }
+
+        return `[${takeoffName}] ${cleanParents.join(' > ')}`;
+    }
+
+    function buildAssemblyName(item, lineMap) {
+        if (!item.parentId) return '';
+
+        const parent = lineMap.get(item.parentId);
+        return parent ? (parent.description || '') : '';
+    }
+
     function collectTakeoffData() {
         const takeoffLis = Array.from(document.querySelectorAll('#totopLevel > li[data-takeoff-id]'));
         const rows = [];
 
-        takeoffLis.forEach((takeoffLi) => {
+        takeoffLis.forEach((takeoffLi, takeoffIdx) => {
             const takeoffId = takeoffLi.dataset.takeoffId || '';
             const takeoffName = getTakeoffName(takeoffLi);
             const lineItems = Array.from(takeoffLi.querySelectorAll('li.qteLnItem'));
@@ -74,13 +109,14 @@
             const parsedItems = lineItems.map(getLineData);
             parsedItems.forEach(item => lineMap.set(item.lineItemId, item));
 
-            // Takeoff header row
             rows.push({
                 rowKey: `takeoff_${takeoffId}`,
                 rowType: 'takeoffHeader',
                 takeoffId,
                 groupKey: `takeoff_${takeoffId}`,
                 parentGroupKey: null,
+                parentItem: `[${takeoffName}]`,
+                assemblyName: '',
                 lineItemId: '',
                 takeoffSheet: takeoffName,
                 assemblyDepth: '',
@@ -88,10 +124,12 @@
                 description: '',
                 qty: '',
                 extendedQty: '',
+                isAssembly: 'No',
+                sortIndex: `${String(takeoffIdx + 1).padStart(3, '0')}.0000`,
                 isControllable: true
             });
 
-            parsedItems.forEach(item => {
+            parsedItems.forEach((item, rowIdx) => {
                 let multiplier = 1;
                 let current = item;
 
@@ -117,12 +155,17 @@
                     p = p.parentId ? lineMap.get(p.parentId) : null;
                 }
 
+                const parentItem = buildParentItemPath(item, lineMap, takeoffName);
+                const assemblyName = buildAssemblyName(item, lineMap);
+
                 rows.push({
                     rowKey: `${rowType}_${takeoffId}_${item.lineItemId}`,
                     rowType,
                     takeoffId,
                     groupKey: rowType === 'assemblyHeader' ? `assembly_${takeoffId}_${item.lineItemId}` : null,
                     parentGroupKey,
+                    parentItem,
+                    assemblyName,
                     lineItemId: item.lineItemId,
                     takeoffSheet: takeoffName,
                     assemblyDepth: item.assemblyDepth,
@@ -130,6 +173,8 @@
                     description: item.description,
                     qty: formatQty(item.qty),
                     extendedQty: formatQty(item.qty * multiplier),
+                    isAssembly: rowType === 'assemblyHeader' ? 'Yes' : 'No',
+                    sortIndex: `${String(takeoffIdx + 1).padStart(3, '0')}.${String(rowIdx + 1).padStart(4, '0')}`,
                     isControllable: rowType === 'assemblyHeader'
                 });
             });
@@ -138,15 +183,33 @@
         return rows;
     }
 
+    function getEnabledOptionalHeaders(optionalColumns) {
+        return [
+            ...(optionalColumns.sortIndex ? ['Sort Index'] : []),
+            ...(optionalColumns.isAssembly ? ['Is Assembly'] : []),
+            ...(optionalColumns.assemblyName ? ['Assembly Name'] : [])
+        ];
+    }
+
+    function getOptionalRowValues(row, optionalColumns) {
+        return [
+            ...(optionalColumns.sortIndex ? [row.sortIndex] : []),
+            ...(optionalColumns.isAssembly ? [row.isAssembly] : []),
+            ...(optionalColumns.assemblyName ? [row.assemblyName] : [])
+        ];
+    }
+
     function csvCell(value) {
         const str = String(value ?? '');
         return `"${str.replace(/"/g, '""')}"`;
     }
 
-    function toCsv(rows) {
+    function toCsv(rows, optionalColumns) {
         const headers = [
+            ...getEnabledOptionalHeaders(optionalColumns),
             'Takeoff Sheet',
             'Assembly Depth',
+            'Parent Item',
             'Part Number',
             'Description',
             'Qty',
@@ -157,8 +220,10 @@
 
         rows.forEach(row => {
             lines.push([
+                ...getOptionalRowValues(row, optionalColumns),
                 row.takeoffSheet,
                 row.assemblyDepth,
+                row.parentItem,
                 row.partNo,
                 row.description,
                 row.qty,
@@ -169,10 +234,12 @@
         return lines.join('\n');
     }
 
-    function toPlainTsv(rows) {
+    function toPlainTsv(rows, optionalColumns) {
         const headers = [
+            ...getEnabledOptionalHeaders(optionalColumns),
             'Takeoff Sheet',
             'Assembly Depth',
+            'Parent Item',
             'Part Number',
             'Description',
             'Qty',
@@ -183,8 +250,10 @@
 
         rows.forEach(row => {
             lines.push([
+                ...getOptionalRowValues(row, optionalColumns),
                 row.takeoffSheet,
                 row.assemblyDepth,
+                row.parentItem,
                 row.partNo,
                 row.description,
                 row.qty,
@@ -195,10 +264,12 @@
         return lines.join('\n');
     }
 
-    function buildHtmlTable(rows) {
+    function buildHtmlTable(rows, optionalColumns) {
         const headerCells = [
+            ...getEnabledOptionalHeaders(optionalColumns),
             'Takeoff Sheet',
             'Assembly Depth',
+            'Parent Item',
             'Part Number',
             'Description',
             'Qty',
@@ -222,8 +293,12 @@
 
             return `
                 <tr style="background:${bg};font-weight:${weight};">
+                    ${optionalColumns.sortIndex ? `<td>${escapeHtml(row.sortIndex)}</td>` : ''}
+                    ${optionalColumns.isAssembly ? `<td>${escapeHtml(row.isAssembly)}</td>` : ''}
+                    ${optionalColumns.assemblyName ? `<td>${escapeHtml(row.assemblyName)}</td>` : ''}
                     <td>${escapeHtml(row.takeoffSheet)}</td>
                     <td>${escapeHtml(row.assemblyDepth)}</td>
+                    <td>${escapeHtml(row.parentItem)}</td>
                     <td>${escapeHtml(row.partNo)}</td>
                     <td>${escapeHtml(row.description)}</td>
                     <td>${escapeHtml(row.qty)}</td>
@@ -233,7 +308,7 @@
         }).join('');
 
         return `
-            <table border="1" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;">
+            <table border="1" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;width:100%;">
                 <thead>
                     <tr>${headerCells}</tr>
                 </thead>
@@ -244,9 +319,9 @@
         `;
     }
 
-    function copyTableToClipboard(rows) {
-        const html = buildHtmlTable(rows);
-        const text = toPlainTsv(rows);
+    function copyTableToClipboard(rows, optionalColumns) {
+        const html = buildHtmlTable(rows, optionalColumns);
+        const text = toPlainTsv(rows, optionalColumns);
 
         if (navigator.clipboard && window.ClipboardItem) {
             return navigator.clipboard.write([
@@ -285,6 +360,60 @@
         return Promise.resolve(ok);
     }
 
+    function printHtmlTable(rows, optionalColumns) {
+        const tableHtml = buildHtmlTable(rows, optionalColumns);
+
+        const printWindow = window.open('', '_blank', 'width=1200,height=800');
+        if (!printWindow) return false;
+
+        printWindow.document.open();
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Quote Export</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        padding: 16px;
+                    }
+                    table {
+                        border-collapse: collapse;
+                        width: 100%;
+                        font-size: 12px;
+                    }
+                    th, td {
+                        border: 1px solid #999;
+                        padding: 6px 8px;
+                        text-align: left;
+                        vertical-align: top;
+                    }
+                    th {
+                        background: #f0f0f0;
+                    }
+                    @media print {
+                        body {
+                            padding: 0;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                ${tableHtml}
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+
+        return true;
+    }
+
     function downloadFile(filename, content, mimeType) {
         const blob = new Blob([content], { type: mimeType });
         const url = URL.createObjectURL(blob);
@@ -305,38 +434,55 @@
         });
     }
 
-    function getExportRows(visibleRows, groupState) {
-        const rowMap = new Map(visibleRows.map(r => [r.rowKey, r]));
-
-        function isIncluded(row) {
-            if (row.rowType === 'takeoffHeader') {
-                return !!groupState[row.groupKey];
-            }
-
-            if (row.rowType === 'assemblyHeader') {
-                if (!groupState[row.groupKey]) return false;
-                let parent = row.parentGroupKey;
-                while (parent) {
-                    if (!groupState[parent]) return false;
-                    const parentRow = Array.from(rowMap.values()).find(r => r.groupKey === parent);
-                    parent = parentRow ? parentRow.parentGroupKey : null;
+    function buildChildrenMap(rows) {
+        const childrenMap = {};
+        rows.forEach(row => {
+            if (row.parentGroupKey) {
+                if (!childrenMap[row.parentGroupKey]) childrenMap[row.parentGroupKey] = [];
+                if (row.groupKey) {
+                    childrenMap[row.parentGroupKey].push(row.groupKey);
                 }
-                return true;
             }
+        });
+        return childrenMap;
+    }
 
+    function setGroupStateRecursive(groupKey, value, childrenMap, groupState) {
+        groupState[groupKey] = value;
+        const children = childrenMap[groupKey] || [];
+        children.forEach(childKey => setGroupStateRecursive(childKey, value, childrenMap, groupState));
+    }
+
+    function getExportRows(visibleRows, groupState) {
+        const groupRowMap = new Map();
+        visibleRows.forEach(r => {
+            if (r.groupKey) groupRowMap.set(r.groupKey, r);
+        });
+
+        function areAncestorsEnabled(row) {
             let parent = row.parentGroupKey;
             while (parent) {
                 if (!groupState[parent]) return false;
-                const parentRow = Array.from(rowMap.values()).find(r => r.groupKey === parent);
+                const parentRow = groupRowMap.get(parent);
                 parent = parentRow ? parentRow.parentGroupKey : null;
             }
             return true;
         }
 
-        return visibleRows.filter(isIncluded);
+        return visibleRows.filter(row => {
+            if (row.rowType === 'takeoffHeader') {
+                return !!groupState[row.groupKey];
+            }
+
+            if (row.rowType === 'assemblyHeader') {
+                return !!groupState[row.groupKey] && areAncestorsEnabled(row);
+            }
+
+            return areAncestorsEnabled(row);
+        });
     }
 
-    function renderTableRows(rows, groupState) {
+    function renderTableRows(rows, groupState, optionalColumns) {
         return rows.map(row => {
             const isTakeoffHeader = row.rowType === 'takeoffHeader';
             const isAssemblyHeader = row.rowType === 'assemblyHeader';
@@ -359,8 +505,12 @@
             return `
                 <tr style="background:${bg};font-weight:${weight};">
                     <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${checkboxHtml}</td>
+                    ${optionalColumns.sortIndex ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.sortIndex)}</td>` : ''}
+                    ${optionalColumns.isAssembly ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.isAssembly)}</td>` : ''}
+                    ${optionalColumns.assemblyName ? `<td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.assemblyName)}</td>` : ''}
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.takeoffSheet)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${escapeHtml(row.assemblyDepth)}</td>
+                    <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.parentItem)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.partNo)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;">${escapeHtml(row.description)}</td>
                     <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${escapeHtml(row.qty)}</td>
@@ -374,6 +524,7 @@
         return new Promise((resolve) => {
             let includeTakeoffHeaders = true;
             let includeAssemblyHeaders = true;
+            const optionalColumns = { ...OPTIONAL_COLUMNS_DEFAULT };
             const groupState = {};
 
             allRows.forEach(row => {
@@ -381,6 +532,8 @@
                     groupState[row.groupKey] = true;
                 }
             });
+
+            const childrenMap = buildChildrenMap(allRows);
 
             const overlay = document.createElement('div');
             overlay.style.cssText = `
@@ -396,7 +549,7 @@
             const modal = document.createElement('div');
             modal.style.cssText = `
                 background: #fff;
-                width: min(1300px, 97vw);
+                width: min(1700px, 99vw);
                 max-height: 92vh;
                 border-radius: 10px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.25);
@@ -420,6 +573,20 @@
                         <input type="checkbox" id="tm_assembly_headers" checked>
                         Show Assembly headers
                     </label>
+
+                    <label style="display:flex;gap:8px;align-items:center;">
+                        <input type="checkbox" id="tm_opt_sortindex" checked>
+                        Sort Index
+                    </label>
+                    <label style="display:flex;gap:8px;align-items:center;">
+                        <input type="checkbox" id="tm_opt_isassembly" checked>
+                        Is Assembly
+                    </label>
+                    <label style="display:flex;gap:8px;align-items:center;">
+                        <input type="checkbox" id="tm_opt_assemblyname" checked>
+                        Assembly Name
+                    </label>
+
                     <button id="tm_select_all" type="button" style="padding:6px 10px;">Enable All Groups</button>
                     <button id="tm_select_none" type="button" style="padding:6px 10px;">Disable All Groups</button>
                     <span id="tm_row_count" style="color:#555;"></span>
@@ -427,17 +594,7 @@
 
                 <div style="overflow:auto;border:1px solid #ccc;border-radius:6px;flex:1;min-height:320px;">
                     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                        <thead style="position:sticky;top:0;background:#f0f0f0;z-index:1;">
-                            <tr>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:center;">Include</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:left;">Takeoff Sheet</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:center;">Assembly Depth</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:left;">Part Number</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:left;">Description</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:right;">Qty</th>
-                                <th style="padding:8px;border:1px solid #ddd;text-align:right;">Extended Qty</th>
-                            </tr>
-                        </thead>
+                        <thead id="tm_table_head" style="position:sticky;top:0;background:#f0f0f0;z-index:1;"></thead>
                         <tbody id="tm_table_body"></tbody>
                     </table>
                 </div>
@@ -445,22 +602,46 @@
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
                     <button id="tm_copy_table" type="button" style="padding:8px 14px;">Copy to Clipboard</button>
                     <button id="tm_download_csv" type="button" style="padding:8px 14px;">Download CSV</button>
+                    <button id="tm_print_table" type="button" style="padding:8px 14px;">Print</button>
                     <button id="tm_close" type="button" style="padding:8px 14px;">Close</button>
                 </div>
             `;
 
             overlay.appendChild(modal);
-            document.body.appendChild(modal.parentNode);
+            document.body.appendChild(overlay);
 
             const takeoffHeadersCheckbox = modal.querySelector('#tm_takeoff_headers');
             const assemblyHeadersCheckbox = modal.querySelector('#tm_assembly_headers');
+            const optSortIndexCheckbox = modal.querySelector('#tm_opt_sortindex');
+            const optIsAssemblyCheckbox = modal.querySelector('#tm_opt_isassembly');
+            const optAssemblyNameCheckbox = modal.querySelector('#tm_opt_assemblyname');
+            const tableHead = modal.querySelector('#tm_table_head');
             const tableBody = modal.querySelector('#tm_table_body');
             const rowCount = modal.querySelector('#tm_row_count');
             const selectAllButton = modal.querySelector('#tm_select_all');
             const selectNoneButton = modal.querySelector('#tm_select_none');
             const copyTableButton = modal.querySelector('#tm_copy_table');
             const downloadCsvButton = modal.querySelector('#tm_download_csv');
+            const printTableButton = modal.querySelector('#tm_print_table');
             const closeButton = modal.querySelector('#tm_close');
+
+            function renderHeader() {
+                tableHead.innerHTML = `
+                    <tr>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:center;">Include</th>
+                        ${optionalColumns.sortIndex ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Sort Index</th>' : ''}
+                        ${optionalColumns.isAssembly ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Is Assembly</th>' : ''}
+                        ${optionalColumns.assemblyName ? '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Assembly Name</th>' : ''}
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Takeoff Sheet</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:center;">Assembly Depth</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Parent Item</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Part Number</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Description</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Qty</th>
+                        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Extended Qty</th>
+                    </tr>
+                `;
+            }
 
             function getVisible() {
                 return getVisibleRows(allRows, includeTakeoffHeaders, includeAssemblyHeaders);
@@ -473,8 +654,8 @@
             function bindGroupCheckboxes() {
                 Array.from(tableBody.querySelectorAll('.tm-group-toggle')).forEach(cb => {
                     cb.addEventListener('change', () => {
-                        groupState[cb.dataset.groupKey] = cb.checked;
-                        updateCounts();
+                        setGroupStateRecursive(cb.dataset.groupKey, cb.checked, childrenMap, groupState);
+                        render();
                     });
                 });
             }
@@ -486,8 +667,9 @@
             }
 
             function render() {
+                renderHeader();
                 const visible = getVisible();
-                tableBody.innerHTML = renderTableRows(visible, groupState);
+                tableBody.innerHTML = renderTableRows(visible, groupState, optionalColumns);
                 bindGroupCheckboxes();
                 updateCounts();
             }
@@ -499,6 +681,21 @@
 
             assemblyHeadersCheckbox.addEventListener('change', () => {
                 includeAssemblyHeaders = assemblyHeadersCheckbox.checked;
+                render();
+            });
+
+            optSortIndexCheckbox.addEventListener('change', () => {
+                optionalColumns.sortIndex = optSortIndexCheckbox.checked;
+                render();
+            });
+
+            optIsAssemblyCheckbox.addEventListener('change', () => {
+                optionalColumns.isAssembly = optIsAssemblyCheckbox.checked;
+                render();
+            });
+
+            optAssemblyNameCheckbox.addEventListener('change', () => {
+                optionalColumns.assemblyName = optAssemblyNameCheckbox.checked;
                 render();
             });
 
@@ -514,7 +711,7 @@
 
             copyTableButton.addEventListener('click', async () => {
                 const rows = getExportable();
-                const ok = rows.length ? await copyTableToClipboard(rows) : false;
+                const ok = rows.length ? await copyTableToClipboard(rows, optionalColumns) : false;
 
                 const oldText = copyTableButton.textContent;
                 copyTableButton.textContent = ok ? 'Copied' : 'Nothing Selected';
@@ -526,7 +723,13 @@
             downloadCsvButton.addEventListener('click', () => {
                 const rows = getExportable();
                 if (!rows.length) return;
-                downloadFile('quote_export.csv', toCsv(rows), 'text/csv;charset=utf-8;');
+                downloadFile('quote_export.csv', toCsv(rows, optionalColumns), 'text/csv;charset=utf-8;');
+            });
+
+            printTableButton.addEventListener('click', () => {
+                const rows = getExportable();
+                if (!rows.length) return;
+                printHtmlTable(rows, optionalColumns);
             });
 
             function close() {
