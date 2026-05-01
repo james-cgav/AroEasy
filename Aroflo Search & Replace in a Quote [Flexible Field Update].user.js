@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Aroflo Search & Replace in a Quote [Flexible Field Update]
 // @namespace    https://contactgroup.com.au
-// @version      2026-04-22d
-// @description  Click Ctrl-Shift-Q and update quote item values within a selected takeoff sheet or first level assembly.
-// @author       James Wright, Guray Sunamak & Andrew Otley
+// @version      2026-04-22e
+// @description  Ctrl-Shift-Q updates quote item fields within a selected takeoff sheet or first level assembly.
+// @author       James Wright, Andrew Otley & Guray Sunamak
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/index.cfm*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=aroflo.com
 // @grant        none
@@ -65,6 +65,7 @@
         return Array.from(container.querySelectorAll('li.qteLnItem[data-level-no="1"]')).map(li => {
             const nameEl = li.querySelector('textarea[name="item"]');
             const name = nameEl ? nameEl.value.trim() : `Assembly ${li.dataset.lineItemId || ''}`;
+
             return {
                 type: 'assembly',
                 label: `${getTakeoffName(takeoffLi)} > ${name}`,
@@ -107,14 +108,12 @@
         if (!cfg) return '';
 
         const el = lineItem.querySelector(cfg.selector);
-        if (!el) return '';
-
-        return (el.value || '').trim();
+        return el ? (el.value || '').trim() : '';
     }
 
     function getSearchableItemsForScope(scopeElement, fieldKey) {
         const lineItems = getLineItemsInScope(scopeElement);
-        const items = [];
+        const map = new Map();
 
         lineItems.forEach(lineItem => {
             const partInput = lineItem.querySelector("input[name='partNo']");
@@ -125,16 +124,22 @@
 
             if (!partNo && !desc) return;
 
-            items.push({
-                key: `${lineItem.id || Math.random()}`,
-                lineItem,
-                partNo,
-                desc,
-                fieldValue: getFieldValueFromLineItem(lineItem, fieldKey)
-            });
+            const matchKey = `${partNo.toLowerCase()}|||${desc.toLowerCase()}`;
+
+            if (!map.has(matchKey)) {
+                map.set(matchKey, {
+                    key: matchKey,
+                    partNo,
+                    desc,
+                    fieldValue: getFieldValueFromLineItem(lineItem, fieldKey),
+                    count: 1
+                });
+            } else {
+                map.get(matchKey).count++;
+            }
         });
 
-        return items.sort((a, b) => {
+        return Array.from(map.values()).sort((a, b) => {
             const aText = `${a.partNo} ${a.desc}`.trim().toLowerCase();
             const bText = `${b.partNo} ${b.desc}`.trim().toLowerCase();
             return aText.localeCompare(bText);
@@ -147,15 +152,16 @@
         const filtered = !q
             ? items
             : items.filter(item => {
-                const haystack = `${item.partNo} ${item.desc} ${item.fieldValue}`.toLowerCase();
+                const haystack = `${item.partNo} ${item.desc} ${item.fieldValue} ${item.count}`.toLowerCase();
                 return haystack.includes(q);
             });
 
         listEl.innerHTML = `
-            <div style="display:grid;grid-template-columns:180px 1fr 180px;font-weight:bold;border-bottom:1px solid #ccc;background:#f7f7f7;">
+            <div style="display:grid;grid-template-columns:180px 1fr 180px 90px;font-weight:bold;border-bottom:1px solid #ccc;background:#f7f7f7;">
                 <div style="padding:8px;">Part No</div>
                 <div style="padding:8px;">Description</div>
                 <div style="padding:8px;">Current Value</div>
+                <div style="padding:8px;text-align:right;">Matches</div>
             </div>
             <div>
                 ${filtered.map(item => `
@@ -164,7 +170,7 @@
                         data-key="${escapeHtml(item.key)}"
                         style="
                             display:grid;
-                            grid-template-columns:180px 1fr 180px;
+                            grid-template-columns:180px 1fr 180px 90px;
                             border-bottom:1px solid #eee;
                             cursor:pointer;
                             background:${item.key === selectedKey ? '#eef5ff' : '#fff'};
@@ -173,6 +179,7 @@
                         <div style="padding:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.partNo)}</div>
                         <div style="padding:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.desc)}</div>
                         <div style="padding:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.fieldValue)}</div>
+                        <div style="padding:8px;text-align:right;">${escapeHtml(item.count)}</div>
                     </div>
                 `).join('')}
             </div>
@@ -199,7 +206,7 @@
             const modal = document.createElement('div');
             modal.style.cssText = `
                 background: #fff;
-                width: min(520px, 92vw);
+                width: min(560px, 92vw);
                 border-radius: 10px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.25);
                 padding: 18px;
@@ -277,23 +284,9 @@
                     Update Quote Item
                 </div>
 
-                <div style="display:grid;grid-template-columns:320px 1fr;gap:16px;min-height:420px;">
-                    <div style="display:flex;flex-direction:column;min-height:0;">
-                        <label style="font-weight:bold;margin-bottom:6px;">1. Select Takeoff Sheet / Level 1 Assembly</label>
-                        <input id="tm_scope_search" type="text" placeholder="Search scope..." style="padding:8px;margin-bottom:8px;">
-                        <div id="tm_scope_list" style="border:1px solid #ccc;border-radius:6px;overflow:auto;min-height:300px;flex:1;"></div>
-                    </div>
-
-                    <div style="display:flex;flex-direction:column;min-height:0;">
-                        <label style="font-weight:bold;margin-bottom:6px;">2. Select Part Number / Description</label>
-                        <input id="tm_item_search" type="text" placeholder="Search part number, description, or current value..." style="padding:8px;margin-bottom:8px;">
-                        <div id="tm_item_list" style="border:1px solid #ccc;border-radius:6px;overflow:auto;min-height:300px;flex:1;"></div>
-                    </div>
-                </div>
-
-                <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-top:16px;">
+                <div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
                     <div>
-                        <label style="font-weight:bold;display:block;margin-bottom:6px;">3. What to update</label>
+                        <label style="font-weight:bold;display:block;margin-bottom:6px;">1. What to update</label>
                         <select id="tm_field_select" style="padding:8px;min-width:180px;">
                             ${Object.entries(UPDATE_FIELDS).map(([key, cfg]) => `
                                 <option value="${escapeHtml(key)}">${escapeHtml(cfg.label)}</option>
@@ -302,8 +295,22 @@
                     </div>
 
                     <div>
-                        <label id="tm_new_value_label" style="font-weight:bold;display:block;margin-bottom:6px;">4. New Value</label>
+                        <label id="tm_new_value_label" style="font-weight:bold;display:block;margin-bottom:6px;">2. New Value</label>
                         <input id="tm_new_value" type="text" placeholder="Enter new value" style="padding:8px;min-width:260px;">
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:320px 1fr;gap:16px;min-height:420px;">
+                    <div style="display:flex;flex-direction:column;min-height:0;">
+                        <label style="font-weight:bold;margin-bottom:6px;">3. Select Takeoff Sheet / Level 1 Assembly</label>
+                        <input id="tm_scope_search" type="text" placeholder="Search scope..." style="padding:8px;margin-bottom:8px;">
+                        <div id="tm_scope_list" style="border:1px solid #ccc;border-radius:6px;overflow:auto;min-height:300px;flex:1;"></div>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;min-height:0;">
+                        <label style="font-weight:bold;margin-bottom:6px;">4. Select Part Number / Description</label>
+                        <input id="tm_item_search" type="text" placeholder="Search part number, description, current value, or match count..." style="padding:8px;margin-bottom:8px;">
+                        <div id="tm_item_list" style="border:1px solid #ccc;border-radius:6px;overflow:auto;min-height:300px;flex:1;"></div>
                     </div>
                 </div>
 
@@ -329,7 +336,7 @@
 
             function updateNewValueLabel() {
                 const fieldLabel = UPDATE_FIELDS[selectedField].label;
-                newValueLabel.textContent = `4. New ${fieldLabel}`;
+                newValueLabel.textContent = `2. New ${fieldLabel}`;
                 newValueInput.placeholder = `Enter new ${fieldLabel}`;
             }
 
@@ -340,6 +347,7 @@
                     <div><strong>Item:</strong> ${escapeHtml(selectedItem ? `${selectedItem.partNo} — ${selectedItem.desc}` : 'None')}</div>
                     <div><strong>Field:</strong> ${escapeHtml(UPDATE_FIELDS[selectedField]?.label || 'None')}</div>
                     <div><strong>Current value:</strong> ${escapeHtml(selectedItem?.fieldValue || '')}</div>
+                    <div><strong>Matching rows in scope:</strong> ${escapeHtml(selectedItem?.count || '')}</div>
                 `;
             }
 
@@ -349,7 +357,7 @@
                     ? scopes
                     : scopes.filter(s => s.label.toLowerCase().includes(q));
 
-                scopeList.innerHTML = filtered.map((scope) => `
+                scopeList.innerHTML = filtered.map(scope => `
                     <div
                         class="tm-scope-option"
                         data-scope-index="${scopes.indexOf(scope)}"
@@ -471,29 +479,53 @@
 
         const { scope, item, fieldKey, newValue } = result;
         const fieldCfg = UPDATE_FIELDS[fieldKey];
-        const targetEl = item.lineItem.querySelector(fieldCfg.selector);
+        const lineItems = getLineItemsInScope(scope.element);
 
-        let updated = false;
-        let oldValue = '';
+        let updateCount = 0;
+        const oldValues = new Set();
 
-        if (targetEl) {
-            oldValue = (targetEl.value || '').trim();
+        lineItems.forEach(lineItem => {
+            const partInput = lineItem.querySelector("input[name='partNo']");
+            const descInput = lineItem.querySelector("textarea[name='item']");
+
+            const partNo = (partInput?.value || '').trim();
+            const desc = (descInput?.value || '').trim();
+
+            const isMatch =
+                partNo.toLowerCase() === item.partNo.toLowerCase() &&
+                desc.toLowerCase() === item.desc.toLowerCase();
+
+            if (!isMatch) return;
+
+            const targetEl = lineItem.querySelector(fieldCfg.selector);
+            if (!targetEl) return;
+
+            oldValues.add((targetEl.value || '').trim());
+
             targetEl.value = newValue;
             targetEl.dispatchEvent(new Event('input', { bubbles: true }));
             targetEl.dispatchEvent(new Event('change', { bubbles: true }));
-            updated = true;
-        }
 
-        if (updated) {
+            updateCount++;
+        });
+
+        if (updateCount > 0) {
             await showMessageModal(
                 'Update complete',
-                `Updated 1 occurrence.\n\nScope: ${scope.label}\nField: ${fieldCfg.label}\nOld value: ${oldValue}\nNew value: ${newValue}\n\nDon't forget to click Save.`,
+                `Updated ${updateCount} occurrence${updateCount === 1 ? '' : 's'}.\n\n` +
+                `Scope: ${scope.label}\n` +
+                `Field: ${fieldCfg.label}\n` +
+                `Old value${oldValues.size === 1 ? '' : 's'}: ${Array.from(oldValues).join(', ')}\n` +
+                `New value: ${newValue}\n\n` +
+                `Don't forget to click Save.`,
                 true
             );
         } else {
             await showMessageModal(
                 'Update failed',
-                `No matching editable field was found for:\n\nScope: ${scope.label}\nField: ${fieldCfg.label}`,
+                `No matching editable fields were found for:\n\n` +
+                `Scope: ${scope.label}\n` +
+                `Field: ${fieldCfg.label}`,
                 false
             );
         }
