@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aroflo Search & Replace in a Quote [Flexible Field Update]
 // @namespace    https://contactgroup.com.au
-// @version      2026-04-22f
+// @version      2026-04-22g
 // @description  Ctrl-Shift-Q updates quote item fields within a selected takeoff sheet or first level assembly.
 // @author       James Wright, Andrew Otley & Guray Sunamak
 // @match        https://office.aroflo.com/ims/Site/Service/Quotes/index.cfm*
