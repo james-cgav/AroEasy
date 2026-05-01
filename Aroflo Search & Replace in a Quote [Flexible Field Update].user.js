@@ -77,31 +77,40 @@
     function getSelectableScopes() {
         const takeoffLis = Array.from(document.querySelectorAll('#totopLevel > li[data-takeoff-id]'));
         const scopes = [];
-
+    
+        scopes.push({
+            type: 'all',
+            label: '[All Takeoff Sheets]',
+            element: document.querySelector('#totopLevel')
+        });
+    
         takeoffLis.forEach(takeoffLi => {
             const takeoffName = getTakeoffName(takeoffLi);
-
+    
             scopes.push({
                 type: 'takeoff',
                 label: `[Takeoff] ${takeoffName}`,
-                element: takeoffLi.querySelector('.takeoffContainer') || takeoffLi
+                element: takeoffLi
             });
-
+    
             scopes.push(...getLevel1Assemblies(takeoffLi));
         });
-
+    
         return scopes;
     }
 
-    function getLineItemsInScope(scopeElement) {
-        if (!scopeElement) return [];
+function getLineItemsInScope(scopeElement) {
+    if (!scopeElement) return [];
 
-        if (scopeElement.matches('li.qteLnItem')) {
-            return [scopeElement, ...scopeElement.querySelectorAll('li.qteLnItem')];
-        }
-
-        return Array.from(scopeElement.querySelectorAll('li.qteLnItem'));
+    // Specific assembly selected: include the assembly row and all child rows
+    if (scopeElement.matches('li.qteLnItem')) {
+        return [scopeElement, ...scopeElement.querySelectorAll('li.qteLnItem')];
     }
+
+    // Takeoff sheet or all takeoff sheets selected:
+    // include every line item inside the scope, including all level 1 assemblies and their children
+    return Array.from(scopeElement.querySelectorAll('li.qteLnItem'));
+}
 
     function getFieldValueFromLineItem(lineItem, fieldKey) {
         const cfg = UPDATE_FIELDS[fieldKey];
